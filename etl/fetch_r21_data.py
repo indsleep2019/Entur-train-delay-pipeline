@@ -2,11 +2,10 @@ import datetime
 import csv
 import os
 
-# Simulert dataproduksjon (erstattes senere med Entur API)
 today = datetime.date.today().isoformat()
-filename = f"data/{today}_R21.csv"
-
 os.makedirs("data", exist_ok=True)
+
+filename = f"data/{today}_R21.csv"
 
 with open(filename, "w", newline="") as f:
     writer = csv.writer(f)
