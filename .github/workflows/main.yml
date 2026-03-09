@@ -25,7 +25,7 @@ jobs:
 
       - name: Run ETL script
         run: python etl/fetch_r21_data.py
-
+        
         - name: Commit generated data
   run: |
     git config --global user.name "github-actions"
