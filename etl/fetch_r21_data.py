@@ -1,59 +1,66 @@
+import os
 import requests
 import datetime
-import csv
-import os
-import xml.etree.ElementTree as ET
+import snowflake.connector
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
-# ---- Config ----
+# ---------- ENTUR ----------
 CLIENT_NAME = "indl-r21-pipeline"
 URL = "https://api.entur.io/realtime/v1/rest/estimated-timetable"
 
-# ---- Hent data ----
-headers = {
-    "Client-Name": CLIENT_NAME
-}
-
+headers = {"Client-Name": CLIENT_NAME}
 response = requests.get(URL, headers=headers)
 response.raise_for_status()
 
-# ---- Parse XML ----
-root = ET.fromstring(response.content)
-
-# ---- Forbered CSV ----
+# TODO: Bytt til ekte parsing senere
 today = datetime.date.today().isoformat()
-os.makedirs("data", exist_ok=True)
-filename = f"data/{today}_R21.csv"
+rows = [
+    (today, "R21", 5),
+    (today, "R21", 0),
+]
 
-rows = []
+# ---------- SNOWFLAKE AUTH ----------
+private_key = serialization.load_pem_private_key(
+    os.environ["SNOWFLAKE_PRIVATE_KEY"].encode(),
+    password=None,
+    backend=default_backend()
+)
 
-# ---- Finn tog ----
-for journey in root.iter():
-    if journey.tag.endswith("EstimatedVehicleJourney"):
-        line_ref = None
-        delay = None
-        aimed = None
-        estimated = None
+pkb = private_key.private_bytes(
+    encoding=serialization.Encoding.DER,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption()
+)
 
-        for elem in journey.iter():
-            tag = elem.tag.split("}")[-1]
+# ---------- CONNECT ----------
+conn = snowflake.connector.connect(
+    user=os.environ["SNOWFLAKE_USER"],
+    account=os.environ["SNOWFLAKE_ACCOUNT"],
+    private_key=pkb,
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+    database=os.environ["SNOWFLAKE_DATABASE"],
+    schema=os.environ["SNOWFLAKE_SCHEMA"]
+)
 
-            if tag == "LineRef":
-                line_ref = elem.text
+cs = conn.cursor()
 
-            if tag == "AimedDepartureTime":
-                aimed = elem.text
+# ---------- TABLE ----------
+cs.execute("""
+CREATE TABLE IF NOT EXISTS R21_GITHUB_STAGE (
+    DATE DATE,
+    LINE STRING,
+    DELAY_MINUTES NUMBER
+)
+""")
 
-            if tag == "ExpectedDepartureTime":
-                estimated = elem.text
+# ---------- INSERT ----------
+cs.executemany(
+    "INSERT INTO R21_GITHUB_STAGE (DATE, LINE, DELAY_MINUTES) VALUES (%s,%s,%s)",
+    rows
+)
 
-        # Filtrer R21
-        if line_ref and "R21" in line_ref:
-            rows.append([today, line_ref, aimed, estimated])
+cs.close()
+conn.close()
 
-# ---- Skriv CSV ----
-with open(filename, "w", newline="", encoding="utf-8") as f:
-    writer = csv.writer(f)
-    writer.writerow(["date", "line", "aimed_departure", "expected_departure"])
-    writer.writerows(rows)
-
-print(f"Saved {len(rows)} R21 records to {filename}")
+print("Loaded data into Snowflake")
