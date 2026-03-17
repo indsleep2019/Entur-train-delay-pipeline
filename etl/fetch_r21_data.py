@@ -1,66 +1,94 @@
-import os
 import requests
-import datetime
-import snowflake.connector
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
+import pandas as pd
+from datetime import datetime
+import os
 
-# ---------- ENTUR ----------
-CLIENT_NAME = "indl-r21-pipeline"
-URL = "https://api.entur.io/realtime/v1/rest/estimated-timetable"
+# -----------------------------
+# KONFIG
+# -----------------------------
+URL = "https://api.entur.io/realtime/v1/rest/et"
+HEADERS = {
+    "ET-Client-Name": "indl-r21-pipeline"
+}
 
-headers = {"Client-Name": CLIENT_NAME}
-response = requests.get(URL, headers=headers)
-response.raise_for_status()
+# -----------------------------
+# HENT DATA FRA ENTUR
+# -----------------------------
+response = requests.get(URL, headers=HEADERS)
 
-# TODO: Bytt til ekte parsing senere
-today = datetime.date.today().isoformat()
-rows = [
-    (today, "R21", 5),
-    (today, "R21", 0),
-]
+if response.status_code != 200:
+    raise Exception(f"Feil ved henting av data: {response.status_code}")
 
-# ---------- SNOWFLAKE AUTH ----------
-private_key = serialization.load_pem_private_key(
-    os.environ["SNOWFLAKE_PRIVATE_KEY"].encode(),
-    password=None,
-    backend=default_backend()
-)
+data = response.json()
 
-pkb = private_key.private_bytes(
-    encoding=serialization.Encoding.DER,
-    format=serialization.PrivateFormat.PKCS8,
-    encryption_algorithm=serialization.NoEncryption()
-)
+# -----------------------------
+# PARSE DATA
+# -----------------------------
+records = []
 
-# ---------- CONNECT ----------
-conn = snowflake.connector.connect(
-    user=os.environ["SNOWFLAKE_USER"],
-    account=os.environ["SNOWFLAKE_ACCOUNT"],
-    private_key=pkb,
-    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-    database=os.environ["SNOWFLAKE_DATABASE"],
-    schema=os.environ["SNOWFLAKE_SCHEMA"]
-)
+try:
+    deliveries = data["Siri"]["ServiceDelivery"]["EstimatedTimetableDelivery"]
 
-cs = conn.cursor()
+    for delivery in deliveries:
+        journeys = delivery.get("EstimatedJourneyVersionFrame", [])
 
-# ---------- TABLE ----------
-cs.execute("""
-CREATE TABLE IF NOT EXISTS R21_GITHUB_STAGE (
-    DATE DATE,
-    LINE STRING,
-    DELAY_MINUTES NUMBER
-)
-""")
+        for frame in journeys:
+            vehicle_journeys = frame.get("EstimatedVehicleJourney", [])
 
-# ---------- INSERT ----------
-cs.executemany(
-    "INSERT INTO R21_GITHUB_STAGE (DATE, LINE, DELAY_MINUTES) VALUES (%s,%s,%s)",
-    rows
-)
+            for journey in vehicle_journeys:
 
-cs.close()
-conn.close()
+                line_ref = journey.get("LineRef", {}).get("value", "")
 
-print("Loaded data into Snowflake")
+                # Filtrer kun R21
+                if "R21" not in line_ref:
+                    continue
+
+                journey_id = journey.get("FramedVehicleJourneyRef", {}).get("DatedVehicleJourneyRef", "")
+
+                calls = journey.get("EstimatedCalls", {}).get("EstimatedCall", [])
+
+                for call in calls:
+                    aimed = call.get("AimedDepartureTime")
+                    expected = call.get("ExpectedDepartureTime")
+                    recorded = call.get("RecordedAtTime")
+
+                    if aimed and expected:
+                        delay_minutes = (
+                            pd.to_datetime(expected) - pd.to_datetime(aimed)
+                        ).total_seconds() / 60
+
+                        records.append({
+                            "DATE": aimed[:10],
+                            "TRAIN": line_ref,
+                            "AIMED_DEPARTURE": aimed,
+                            "EXPECTED_DEPARTURE": expected,
+                            "DELAY_MINUTES": round(delay_minutes, 2),
+                            "RECORDED_AT": recorded,
+                            "LOAD_TIMESTAMP": datetime.utcnow().isoformat()
+                        })
+
+except Exception as e:
+    print("Parsing-feil:", e)
+
+# -----------------------------
+# LAG DATAFRAME
+# -----------------------------
+df = pd.DataFrame(records)
+
+if df.empty:
+    print("Ingen R21-data funnet")
+    exit()
+
+# -----------------------------
+# LAGRE CSV
+# -----------------------------
+today = datetime.utcnow().strftime("%Y-%m-%d")
+
+output_dir = "data"
+os.makedirs(output_dir, exist_ok=True)
+
+file_path = f"{output_dir}/{today}_R21.csv"
+
+df.to_csv(file_path, index=False)
+
+print(f"Fil lagret: {file_path}")
