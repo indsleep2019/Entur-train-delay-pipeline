@@ -4,7 +4,6 @@ import requests
 import xml.etree.ElementTree as ET
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
 
 # -----------------------------
 # HENT DATA FRA ENTUR (XML)
@@ -24,7 +23,6 @@ if response.status_code != 200:
 
 root = ET.fromstring(response.content)
 
-# namespace (viktig!)
 ns = {"siri": "http://www.siri.org.uk/siri"}
 
 records = []
@@ -74,17 +72,22 @@ if not records:
 print("Antall records:", len(records))
 
 # -----------------------------
-# SNOWFLAKE AUTH
+# SNOWFLAKE AUTH (ROBUST FIX)
 # -----------------------------
-private_key_str = os.environ["SNOWFLAKE_PRIVATE_KEY"]
+private_key_raw = os.environ.get("SNOWFLAKE_PRIVATE_KEY")
 
-# 🔥 FIX linjeskift automatisk
-private_key_str = private_key_str.replace("\\n", "\n")
+if not private_key_raw:
+    raise Exception("SNOWFLAKE_PRIVATE_KEY mangler i GitHub Secrets")
+
+# 🔥 håndter både riktig og feil formatering
+if "\\n" in private_key_raw:
+    private_key_fixed = private_key_raw.replace("\\n", "\n")
+else:
+    private_key_fixed = private_key_raw
 
 private_key = serialization.load_pem_private_key(
-    private_key_str.encode(),
+    private_key_fixed.encode(),
     password=None,
-    backend=default_backend()
 )
 
 pkb = private_key.private_bytes(
@@ -93,6 +96,9 @@ pkb = private_key.private_bytes(
     encryption_algorithm=serialization.NoEncryption()
 )
 
+# -----------------------------
+# CONNECT TO SNOWFLAKE
+# -----------------------------
 conn = snowflake.connector.connect(
     user=os.environ["SNOWFLAKE_USER"],
     account=os.environ["SNOWFLAKE_ACCOUNT"],
@@ -120,4 +126,4 @@ cs.executemany(
 cs.close()
 conn.close()
 
-print("Lastet til Snowflake")
+print(f"Lastet {len(records)} rader til Snowflake")
