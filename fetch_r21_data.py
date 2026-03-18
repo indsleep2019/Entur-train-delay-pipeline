@@ -109,9 +109,6 @@ conn = snowflake.connector.connect(
 cs = conn.cursor()
 
 # 🔥 sett context eksplisitt
-cs.execute("USE DATABASE TRAIN_DELAY_DB")
-cs.execute("USE SCHEMA RAW")
-
 cs.execute("""
 CREATE TABLE IF NOT EXISTS TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE (
     DATE DATE,
