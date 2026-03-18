@@ -25,4 +25,4 @@ jobs:
         run: pip install requests snowflake-connector-python cryptography pandas
 
       - name: Run ETL
-        run: python etl/fetch_r21_data.py
+        run: python fetch_r21_data.py
