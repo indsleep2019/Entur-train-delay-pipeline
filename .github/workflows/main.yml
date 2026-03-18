@@ -24,7 +24,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-  run: pip install requests snowflake-connector-python cryptography
+  run: pip install requests snowflake-connector-python cryptography pandas
 
       - name: Run ETL script
         run: python etl/fetch_r21_data.py
