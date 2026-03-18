@@ -29,4 +29,12 @@ jobs:
         run: pip install requests snowflake-connector-python cryptography pandas
 
       - name: Run ETL
-        run: python fetch_r21_data.py
+  env:
+    SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+    SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+    SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+    SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+    SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+    SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+  run: python fetch_r21_data.py
+        
