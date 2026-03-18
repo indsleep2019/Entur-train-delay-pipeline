@@ -14,13 +14,18 @@ URL = "https://api.entur.io/realtime/v1/rest/et"
 HEADERS = {
     "ET-Client-Name": "github-r21-pipeline"
 }
-
 response = requests.get(URL, headers=HEADERS)
+
+print("Status code:", response.status_code)
+print("Response text (første 200 chars):", response.text[:200])
 
 if response.status_code != 200:
     raise Exception(f"API error: {response.status_code}")
 
-data = response.json()
+try:
+    data = response.json()
+except Exception as e:
+    raise Exception(f"Kunne ikke parse JSON. Response var: {response.text[:500]}")
 
 records = []
 
