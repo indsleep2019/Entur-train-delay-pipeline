@@ -103,12 +103,14 @@ conn = snowflake.connector.connect(
     user=os.environ["SNOWFLAKE_USER"],
     account=os.environ["SNOWFLAKE_ACCOUNT"],
     private_key=pkb,
-    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-    database=os.environ["SNOWFLAKE_DATABASE"],
-    schema=os.environ["SNOWFLAKE_SCHEMA"]
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"]
 )
 
 cs = conn.cursor()
+
+# 🔥 sett context eksplisitt
+cs.execute("USE DATABASE TRAIN_DELAY_DB")
+cs.execute("USE SCHEMA RAW")
 
 cs.execute("""
 CREATE TABLE IF NOT EXISTS R21_GITHUB_STAGE (
