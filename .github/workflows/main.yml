@@ -6,11 +6,10 @@ permissions:
 on:
   workflow_dispatch:
   schedule:
-  # Hver 5. min fra 05:00 til 08:55 (man-fre)
-  - cron: '*/5 5-8 * * 1-5'
-  
-  # Kl 09:00 (man-fre)
-  - cron: '0 9 * * 1-5'
+    # 05:00–08:55 norsk tid (UTC 04–07)
+    - cron: '*/5 4-7 * * 1-5'
+    # 09:00 norsk tid (UTC 08)
+    - cron: '0 8 * * 1-5'
 
 jobs:
   run-pipeline:
@@ -29,12 +28,11 @@ jobs:
         run: pip install requests snowflake-connector-python cryptography pandas
 
       - name: Run ETL
-  env:
-    SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
-    SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-    SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-    SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-    SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-    SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
-  run: python fetch_r21_data.py
-        
+        env:
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+        run: python fetch_r21_data.py
