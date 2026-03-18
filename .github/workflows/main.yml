@@ -6,7 +6,11 @@ permissions:
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 5 * * *'
+  # Hver 5. min fra 05:00 til 08:55 (man-fre)
+  - cron: '*/5 5-8 * * 1-5'
+  
+  # Kl 09:00 (man-fre)
+  - cron: '0 9 * * 1-5'
 
 jobs:
   run-pipeline:
