@@ -76,8 +76,13 @@ print("Antall records:", len(records))
 # -----------------------------
 # SNOWFLAKE AUTH
 # -----------------------------
+private_key_str = os.environ["SNOWFLAKE_PRIVATE_KEY"]
+
+# 🔥 FIX linjeskift automatisk
+private_key_str = private_key_str.replace("\\n", "\n")
+
 private_key = serialization.load_pem_private_key(
-    os.environ["SNOWFLAKE_PRIVATE_KEY"].encode(),
+    private_key_str.encode(),
     password=None,
     backend=default_backend()
 )
