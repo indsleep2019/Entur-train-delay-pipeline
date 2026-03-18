@@ -109,14 +109,7 @@ conn = snowflake.connector.connect(
 
 cs = conn.cursor()
 
-# 🔥 sett context eksplisitt
-cs.execute("""
-CREATE TABLE IF NOT EXISTS TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE (
-    DATE DATE,
-    TRAIN STRING,
-    DELAY_MINUTES NUMBER
-)
-""")
+
 
 cs.executemany(
     "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE VALUES (%s,%s,%s)",
