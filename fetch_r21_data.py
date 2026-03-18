@@ -103,7 +103,8 @@ conn = snowflake.connector.connect(
     user=os.environ["SNOWFLAKE_USER"],
     account=os.environ["SNOWFLAKE_ACCOUNT"],
     private_key=pkb,
-    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"]
+    warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+    role="SYSADMIN"   # 🔥 DETTE ER FIXEN
 )
 
 cs = conn.cursor()
