@@ -104,15 +104,15 @@ conn = snowflake.connector.connect(
     account=os.environ["SNOWFLAKE_ACCOUNT"],
     private_key=pkb,
     warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-    role="SYSADMIN"   # 🔥 DETTE ER FIXEN
+    database="TRAIN_DELAY_DB",
+    schema="RAW",
+    role="SYSADMIN"
 )
-
 cs = conn.cursor()
 
-cs.execute(f"USE WAREHOUSE {os.environ['SNOWFLAKE_WAREHOUSE']}")
-
+# 🔥 Fjern cs.execute("USE WAREHOUSE ...") helt
 cs.executemany(
-    "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE VALUES (%s,%s,%s)",
+    "INSERT INTO R21_GITHUB_STAGE VALUES (%s,%s,%s)",
     records
 )
 
