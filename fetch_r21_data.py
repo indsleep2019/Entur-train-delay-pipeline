@@ -34,6 +34,8 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
     for call in calls:
         aimed = call.find("siri:AimedDepartureTime", ns)
         expected = call.find("siri:ExpectedDepartureTime", ns)
+        stop = call.find("siri:StopPointRef", ns)
+        stop_id = stop.text if stop is not None else "UNKNOWN"
         if aimed is None or expected is None:
             continue
         aimed_time = aimed.text
@@ -46,6 +48,7 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
             aimed_time[:10],
             line,
             journey_id,
+            stop_id,
             round(delay, 2),
             load_time
         ))
