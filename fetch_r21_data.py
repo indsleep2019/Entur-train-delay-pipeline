@@ -27,6 +27,9 @@ ns = {"siri": "http://www.siri.org.uk/siri"}
 
 records = []
 
+# 🔥 tidspunkt pipeline kjører
+load_time = datetime.datetime.utcnow().isoformat()
+
 for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
 
     line_ref = journey.find("siri:LineRef", ns)
@@ -34,9 +37,6 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
         continue
 
     line = line_ref.text
-
-    if "R21" not in line:
-        continue
 
     journey_ref = journey.find(".//siri:DatedVehicleJourneyRef", ns)
     journey_id = journey_ref.text if journey_ref is not None else "UNKNOWN"
@@ -59,27 +59,28 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
         ).total_seconds() / 60
 
         records.append((
-            aimed_time[:10],
+            aimed_time[:10],           # DATE
+            line,                      # LINE (ikke bare R21)
             journey_id,
-            round(delay, 2)
+            round(delay, 2),
+            load_time                  # 🔥 viktig for prediksjon
         ))
 
 # fallback
 today = datetime.date.today().isoformat()
 if not records:
-    records = [(today, "NO_DATA", 0)]
+    records = [(today, "NO_DATA", "NO_JOURNEY", 0, load_time)]
 
 print("Antall records:", len(records))
 
 # -----------------------------
-# SNOWFLAKE AUTH (ROBUST FIX)
+# SNOWFLAKE AUTH
 # -----------------------------
 private_key_raw = os.environ.get("SNOWFLAKE_PRIVATE_KEY")
 
 if not private_key_raw:
-    raise Exception("SNOWFLAKE_PRIVATE_KEY mangler i GitHub Secrets")
+    raise Exception("SNOWFLAKE_PRIVATE_KEY mangler")
 
-# 🔥 håndter både riktig og feil formatering
 if "\\n" in private_key_raw:
     private_key_fixed = private_key_raw.replace("\\n", "\n")
 else:
@@ -108,11 +109,15 @@ conn = snowflake.connector.connect(
     schema="RAW",
     role="SYSADMIN"
 )
+
 cs = conn.cursor()
 
-# 🔥 Fjern cs.execute("USE WAREHOUSE ...") helt
 cs.executemany(
-    "INSERT INTO R21_GITHUB_STAGE VALUES (%s,%s,%s)",
+    """
+    INSERT INTO R21_GITHUB_STAGE 
+    (DATE, LINE, JOURNEY_ID, DELAY_MINUTES, LOAD_TIMESTAMP)
+    VALUES (%s,%s,%s,%s,%s)
+    """,
     records
 )
 
