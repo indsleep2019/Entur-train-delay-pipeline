@@ -93,7 +93,7 @@ conn = snowflake.connector.connect(
 cs = conn.cursor()
 
 cs.executemany(
-    "INSERT INTO R21_GITHUB_STAGE "
+    "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE "
     '("DATE", "LINE", "JOURNEY_ID", "DELAY_MINUTES", "LOAD_TIMESTAMP") '
     "VALUES (%s,%s,%s,%s,%s)",
     records
