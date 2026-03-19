@@ -109,7 +109,7 @@ conn = snowflake.connector.connect(
 
 cs = conn.cursor()
 
-
+cs.execute(f"USE WAREHOUSE {os.environ['SNOWFLAKE_WAREHOUSE']}")
 
 cs.executemany(
     "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE VALUES (%s,%s,%s)",
