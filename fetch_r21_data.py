@@ -28,22 +28,31 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
     if line_ref is None:
         continue
     line = line_ref.text
+
+    # 🔥 Filtrer kun R21
+    if "R21" not in line:
+        continue
+
     journey_ref = journey.find(".//siri:DatedVehicleJourneyRef", ns)
     journey_id = journey_ref.text if journey_ref is not None else "UNKNOWN"
     calls = journey.findall(".//siri:EstimatedCall", ns)
+
     for call in calls:
         aimed = call.find("siri:AimedDepartureTime", ns)
         expected = call.find("siri:ExpectedDepartureTime", ns)
         stop = call.find("siri:StopPointRef", ns)
         stop_id = stop.text if stop is not None else "UNKNOWN"
+
         if aimed is None or expected is None:
             continue
+
         aimed_time = aimed.text
         expected_time = expected.text
         delay = (
             datetime.datetime.fromisoformat(expected_time.replace("Z", "+00:00")) -
             datetime.datetime.fromisoformat(aimed_time.replace("Z", "+00:00"))
         ).total_seconds() / 60
+
         records.append((
             aimed_time[:10],
             line,
@@ -55,7 +64,7 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
 
 today = datetime.date.today().isoformat()
 if not records:
-    records = [(today, "NO_DATA", "NO_JOURNEY", 0, load_time)]
+    records = [(today, "NO_DATA", "NO_JOURNEY", "UNKNOWN", 0, load_time)]
 
 print("Antall records:", len(records))
 
@@ -95,13 +104,18 @@ conn = snowflake.connector.connect(
 )
 cs = conn.cursor()
 
-cs.executemany(
-    "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE "
-    '("DATE", "LINE", "JOURNEY_ID", "STOP_ID", "DELAY_MINUTES", "LOAD_TIMESTAMP") '
-    "VALUES (%s,%s,%s,%s,%s,%s)",
-    records
-)
+# 🔥 Batch-insert for å unngå Snowflakes 200,000-grense
+BATCH_SIZE = 10000
+for i in range(0, len(records), BATCH_SIZE):
+    batch = records[i:i + BATCH_SIZE]
+    cs.executemany(
+        "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE "
+        '("DATE", "LINE", "JOURNEY_ID", "STOP_ID", "DELAY_MINUTES", "LOAD_TIMESTAMP") '
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        batch
+    )
+    print(f"Lastet batch {i//BATCH_SIZE + 1}: {len(batch)} rader")
 
 cs.close()
 conn.close()
-print(f"Lastet {len(records)} rader til Snowflake")
+print(f"Lastet totalt {len(records)} rader til Snowflake")
