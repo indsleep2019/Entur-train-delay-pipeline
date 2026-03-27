@@ -4,19 +4,36 @@ import requests
 import xml.etree.ElementTree as ET
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
+import time
 
 # -----------------------------
-# HENT DATA FRA ENTUR (XML)
+# HENT DATA FRA ENTUR (XML) MED RETRY
 # -----------------------------
 URL = "https://api.entur.io/realtime/v1/rest/et"
 HEADERS = {
     "ET-Client-Name": "github-r21-pipeline"
 }
 
-response = requests.get(URL, headers=HEADERS)
-print("Status:", response.status_code)
-if response.status_code != 200:
-    raise Exception(f"API error: {response.status_code}")
+MAX_RETRIES = 3
+
+for attempt in range(MAX_RETRIES):
+    try:
+        response = requests.get(URL, headers=HEADERS, timeout=30)
+
+        print("Status:", response.status_code)
+
+        if response.status_code != 200:
+            raise Exception(f"API error: {response.status_code}")
+
+        break  # SUCCESS
+
+    except Exception as e:
+        print(f"Forsøk {attempt+1} feilet: {e}")
+
+        if attempt == MAX_RETRIES - 1:
+            raise Exception("API feilet etter flere forsøk")
+
+        time.sleep(5)
 
 root = ET.fromstring(response.content)
 ns = {"siri": "http://www.siri.org.uk/siri"}
@@ -102,9 +119,10 @@ conn = snowflake.connector.connect(
     schema="RAW",
     role="SYSADMIN"
 )
+
 cs = conn.cursor()
 
-# 🔥 Batch-insert for å unngå Snowflakes 200,000-grense
+# 🔥 Batch-insert
 BATCH_SIZE = 10000
 for i in range(0, len(records), BATCH_SIZE):
     batch = records[i:i + BATCH_SIZE]
@@ -118,4 +136,5 @@ for i in range(0, len(records), BATCH_SIZE):
 
 cs.close()
 conn.close()
+
 print(f"Lastet totalt {len(records)} rader til Snowflake")
