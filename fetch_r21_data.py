@@ -10,6 +10,7 @@ import time
 # HENT DATA FRA ENTUR (XML) MED RETRY
 # -----------------------------
 URL = "https://api.entur.io/realtime/v1/rest/et"
+
 HEADERS = {
     "ET-Client-Name": "github-r21-pipeline"
 }
@@ -25,7 +26,7 @@ for attempt in range(MAX_RETRIES):
         if response.status_code != 200:
             raise Exception(f"API error: {response.status_code}")
 
-        break
+        break  # SUCCESS
 
     except Exception as e:
         print(f"Forsøk {attempt+1} feilet: {e}")
@@ -35,35 +36,28 @@ for attempt in range(MAX_RETRIES):
 
         time.sleep(5)
 
+# -----------------------------
+# PARSE XML
+# -----------------------------
 root = ET.fromstring(response.content)
+
 ns = {"siri": "http://www.siri.org.uk/siri"}
 
 records = []
+
 now_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
 load_time = now_utc.isoformat()
 
 # -----------------------------
 # FILTERKRITERIER
 # -----------------------------
-VALID_LINES = ["VYG:Line:R21"]
+VALID_LINE = "VYG:Line:R21"
 
 VALID_STOPS = {
     "NSR:Quay:845", "NSR:Quay:843",   # Kambo
     "NSR:Quay:250", "NSR:Quay:248",
     "NSR:Quay:247", "NSR:Quay:246"    # Lysaker
 }
-
-def within_time_window(dt):
-    """07:00–08:30 eller 14:00–15:30 (lokal tid approx UTC+1)"""
-    hour = dt.hour
-
-    # NB: vi bruker UTC → juster +1 time for Norge
-    hour_local = (hour + 1) % 24
-
-    return (
-        (7 <= hour_local <= 8) or
-        (14 <= hour_local <= 15)
-    )
 
 # -----------------------------
 # PARSE + FILTER
@@ -77,7 +71,7 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
     line = line_ref.text
 
     # 1️⃣ Kun R21 tog
-    if not any(valid in line for valid in VALID_LINES):
+    if VALID_LINE not in line:
         continue
 
     journey_ref = journey.find(".//siri:DatedVehicleJourneyRef", ns)
@@ -105,11 +99,7 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
         aimed_dt = datetime.datetime.fromisoformat(aimed_time.replace("Z", "+00:00"))
         expected_dt = datetime.datetime.fromisoformat(expected_time.replace("Z", "+00:00"))
 
-        # 3️⃣ Kun relevante tidsvinduer
-        if not within_time_window(aimed_dt):
-            continue
-
-        # 4️⃣ Kun siste 60 min før avgang
+        # 3️⃣ Kun siste 60 min før avgang
         diff_minutes = (aimed_dt - now_utc).total_seconds() / 60
 
         if diff_minutes < 0 or diff_minutes > 60:
@@ -137,6 +127,7 @@ print("Antall records etter filtrering:", len(records))
 # SNOWFLAKE AUTH
 # -----------------------------
 private_key_raw = os.environ.get("SNOWFLAKE_PRIVATE_KEY")
+
 if not private_key_raw:
     raise Exception("SNOWFLAKE_PRIVATE_KEY mangler")
 
@@ -172,17 +163,20 @@ conn = snowflake.connector.connect(
 cs = conn.cursor()
 
 # -----------------------------
-# INSERT
+# INSERT (BATCH)
 # -----------------------------
 BATCH_SIZE = 10000
+
 for i in range(0, len(records), BATCH_SIZE):
     batch = records[i:i + BATCH_SIZE]
+
     cs.executemany(
         "INSERT INTO TRAIN_DELAY_DB.RAW.R21_GITHUB_STAGE "
         '("DATE", "LINE", "JOURNEY_ID", "STOP_ID", "DELAY_MINUTES", "LOAD_TIMESTAMP") '
         "VALUES (%s,%s,%s,%s,%s,%s)",
         batch
     )
+
     print(f"Lastet batch {i//BATCH_SIZE + 1}: {len(batch)} rader")
 
 cs.close()
