@@ -25,7 +25,7 @@ for attempt in range(MAX_RETRIES):
         if response.status_code != 200:
             raise Exception(f"API error: {response.status_code}")
 
-        break  # SUCCESS
+        break
 
     except Exception as e:
         print(f"Forsøk {attempt+1} feilet: {e}")
@@ -37,41 +37,88 @@ for attempt in range(MAX_RETRIES):
 
 root = ET.fromstring(response.content)
 ns = {"siri": "http://www.siri.org.uk/siri"}
-records = []
-load_time = datetime.datetime.utcnow().isoformat()
 
+records = []
+now_utc = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+load_time = now_utc.isoformat()
+
+# -----------------------------
+# FILTERKRITERIER
+# -----------------------------
+VALID_LINES = ["VYG:Line:R21"]
+
+VALID_STOPS = {
+    "NSR:Quay:845", "NSR:Quay:843",   # Kambo
+    "NSR:Quay:250", "NSR:Quay:248",
+    "NSR:Quay:247", "NSR:Quay:246"    # Lysaker
+}
+
+def within_time_window(dt):
+    """07:00–08:30 eller 14:00–15:30 (lokal tid approx UTC+1)"""
+    hour = dt.hour
+
+    # NB: vi bruker UTC → juster +1 time for Norge
+    hour_local = (hour + 1) % 24
+
+    return (
+        (7 <= hour_local <= 8) or
+        (14 <= hour_local <= 15)
+    )
+
+# -----------------------------
+# PARSE + FILTER
+# -----------------------------
 for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
+
     line_ref = journey.find("siri:LineRef", ns)
     if line_ref is None:
         continue
+
     line = line_ref.text
 
-    # 🔥 Filtrer kun R21
-    if "R21" not in line:
+    # 1️⃣ Kun R21 tog
+    if not any(valid in line for valid in VALID_LINES):
         continue
 
     journey_ref = journey.find(".//siri:DatedVehicleJourneyRef", ns)
     journey_id = journey_ref.text if journey_ref is not None else "UNKNOWN"
+
     calls = journey.findall(".//siri:EstimatedCall", ns)
 
     for call in calls:
         aimed = call.find("siri:AimedDepartureTime", ns)
         expected = call.find("siri:ExpectedDepartureTime", ns)
         stop = call.find("siri:StopPointRef", ns)
-        stop_id = stop.text if stop is not None else "UNKNOWN"
 
-        if aimed is None or expected is None:
+        if aimed is None or expected is None or stop is None:
+            continue
+
+        stop_id = stop.text
+
+        # 2️⃣ Kun dine stopp
+        if stop_id not in VALID_STOPS:
             continue
 
         aimed_time = aimed.text
         expected_time = expected.text
-        delay = (
-            datetime.datetime.fromisoformat(expected_time.replace("Z", "+00:00")) -
-            datetime.datetime.fromisoformat(aimed_time.replace("Z", "+00:00"))
-        ).total_seconds() / 60
+
+        aimed_dt = datetime.datetime.fromisoformat(aimed_time.replace("Z", "+00:00"))
+        expected_dt = datetime.datetime.fromisoformat(expected_time.replace("Z", "+00:00"))
+
+        # 3️⃣ Kun relevante tidsvinduer
+        if not within_time_window(aimed_dt):
+            continue
+
+        # 4️⃣ Kun siste 60 min før avgang
+        diff_minutes = (aimed_dt - now_utc).total_seconds() / 60
+
+        if diff_minutes < 0 or diff_minutes > 60:
+            continue
+
+        delay = (expected_dt - aimed_dt).total_seconds() / 60
 
         records.append((
-            aimed_time[:10],
+            aimed_dt.date().isoformat(),
             line,
             journey_id,
             stop_id,
@@ -79,11 +126,12 @@ for journey in root.findall(".//siri:EstimatedVehicleJourney", ns):
             load_time
         ))
 
+# fallback
 today = datetime.date.today().isoformat()
 if not records:
     records = [(today, "NO_DATA", "NO_JOURNEY", "UNKNOWN", 0, load_time)]
 
-print("Antall records:", len(records))
+print("Antall records etter filtrering:", len(records))
 
 # -----------------------------
 # SNOWFLAKE AUTH
@@ -101,6 +149,7 @@ private_key = serialization.load_pem_private_key(
     private_key_fixed.encode(),
     password=None,
 )
+
 pkb = private_key.private_bytes(
     encoding=serialization.Encoding.DER,
     format=serialization.PrivateFormat.PKCS8,
@@ -122,7 +171,9 @@ conn = snowflake.connector.connect(
 
 cs = conn.cursor()
 
-# 🔥 Batch-insert
+# -----------------------------
+# INSERT
+# -----------------------------
 BATCH_SIZE = 10000
 for i in range(0, len(records), BATCH_SIZE):
     batch = records[i:i + BATCH_SIZE]
