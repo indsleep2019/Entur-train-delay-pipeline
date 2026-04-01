@@ -1,3 +1,5 @@
+print("DEBUG: NY KODE AKTIV")
+
 import os
 import datetime
 import requests
